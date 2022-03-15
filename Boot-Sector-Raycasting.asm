@@ -86,19 +86,20 @@ printWord:
 	pop bp
 	ret
 
-; Returns index in board array given x and y coordinates (column, row), where column number is pushed onto stack before
-; row index. 
-getBoardIndex:
+; Returns index in board/screen array given x and y coordinates (column, row) and width of array, where column 
+; number, then row number, then width are pushed onto the stack.
+get2DArrayIndex:
 	push bp 
 	mov bp, sp
 
 	push bx
 
-	; index = row num * screen width + col num.
-	mov bx, SCREEN_WIDTH
-	mov ax, [bp + 8]
+	; index = row num * width + col num
+	; bx is width, ax is row num
+	mov bx, [bp + 4]
+	mov ax, [bp + 6]
 	mul bx
-	add ax, [bp + 6]
+	add ax, [bp + 8]
 	
 	pop bx
 
