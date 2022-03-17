@@ -27,6 +27,8 @@ ANGULAR_SPD	equ 1
 ; Screen dimensions.
 SCREEN_WIDTH	equ 80
 SCREEN_HEIGHT	equ 25
+; Map width and height (both 16)
+MAP_WIDNHEI	equ 16
 
 ; ------------- STATIC DATA -------------
 ; Number of ticks to delay game by at the end of each game loop iteration.
@@ -39,20 +41,9 @@ rot:		dw 0
 ; Let 1000sin(x) be expressed as 1000sin(x) = mx + b (approx.), where m is slope and b is y intercept.
 SIN_SLOPES:	dw 17, 16, 13, 10, 6, 2, 0
 SIN_INTERCEPTS:	dw 0, 18, 109, 257, 506, 815, 1000
-
-; ------------- START GAME -------------
-start:
-	; Set text mode, 80x25 chars, 16 color VGA.
-	mov ax, 0x03
-	int 0x10
-
-	; Set extra segment base address to be base address for 16 color text VGA video memory.
-	; We must go through ax since we can't alter es immediately.
-	mov ax, VMEM_PTR
-	mov es, ax
-
-	; Start the game loop.
-	jmp gameLoop
+; Map encoded into 16 two byte numbers. Each number represents a column, where a 1 in the number is a wall. Most 
+; significant bits represent the left most column of our map.
+MAP:		dw 65535, 36865, 36929, 40897, 33281, 33281, 36927, 32801, 65057, 34833, 34817, 32769, 45695, 41489, 41473, 65535
 
 ; ------------- FUNCTIONS -------------
 ; Prints contents of ax register to top of screen in hexadecimal.
@@ -86,7 +77,7 @@ printWord:
 	pop bp
 	ret
 
-; Returns index in board/screen array given x and y coordinates (column, row) and width of array, where column 
+; Returns index in map/screen array given x and y coordinates (column, row) and width of array, where column 
 ; number, then row number, then width are pushed onto the stack.
 get2DArrayIndex:
 	push bp 
@@ -101,6 +92,34 @@ get2DArrayIndex:
 	mul bx
 	add ax, [bp + 8]
 	
+	pop bx
+
+	mov sp, bp
+	pop bp
+	ret
+
+; Takes column first then row pushed of map position onto stack, and returns greater than 1 if there's a wall, zero otherwise in ax.
+isCoordWall:
+	push bp
+	mov bp, sp
+	
+	push bx
+	push cx
+
+	; Get column index as a mask.
+	mov ax, 0x01
+	mov cx, [bp + 6]
+	; Need to use cl for this, unfortunately. Man x86 is weird.
+	shl ax, cl
+
+	; Get row in map then and with column location mask.
+	mov bx, MAP
+	mov cx, [bp + 8]
+	shl cx, 1
+	add bx, cx
+	and ax, [bx]
+	
+	pop cx
 	pop bx
 
 	mov sp, bp
@@ -184,6 +203,17 @@ sin:
 	pop bp
 	ret
 
+; ------------- START GAME -------------
+start:
+	; Set text mode, 80x25 chars, 16 color VGA.
+	mov ax, 0x03
+	int 0x10
+
+	; Set extra segment base address to be base address for 16 color text VGA video memory.
+	; We must go through ax since we can't alter es immediately.
+	mov ax, VMEM_PTR
+	mov es, ax
+
 ; ------------- GAME LOOP -------------
 gameLoop:
 	; Clear out video memory with black (xor uses fewest bytes to zero a register).
@@ -194,7 +224,6 @@ gameLoop:
 	; Repeatedly black out characters indexed with di for all characters in video memory (i.e. es:di).
 	rep stosw
 
-	
 	; Apply delay to slow game speed (i.e. arcsonic).
 	mov ax, [TICK_COUNTER]
 	add ax, [delayTicks]
