@@ -23,7 +23,7 @@ TICK_COUNTER	equ 0x046C
 ; Translational speed of player (again, remember that this is multiplied by 128 relative to our actual map).
 TRANSL_SPD	equ 64
 ; Angular speed of player (in degrees per delayTicks); not multiplied by anything.
-ANGULAR_SPD	equ 1
+ANGULAR_SPD	equ 2
 ; Screen dimensions.
 SCREEN_WIDTH	equ 80
 SCREEN_HEIGHT	equ 25
@@ -43,7 +43,7 @@ RIGHT_KEY	equ 0x4D
 
 ; ------------- STATIC DATA -------------
 ; Number of ticks to delay game by at the end of each game loop iteration.
-delayTicks:	dw 2
+delayTicks:	dw 1
 ; Player position in our map (again, multiplied by 128).
 xPos:		dw 896
 yPos:		dw 768
@@ -58,7 +58,7 @@ MAP:		dw 65535, 36865, 36929, 40897, 33281, 33281, 36927, 32801, 65057, 34833, 3
 WALL_CHARS:	db 0xDB, 0xB3, 0xB2, 0xB1, 0xB0, 0x00
 
 ; ------------- FUNCTIONS -------------
-;if 0
+if 0
 ; Prints contents of ax register to top of screen in hexadecimal.
 printWord:
 	push bp 
@@ -89,7 +89,7 @@ printWord:
 	mov sp, bp
 	pop bp
 	ret
-;end if
+end if
 
 ; Returns index in screen array given x and y coordinates (column, row) where column 
 ; number then row number are pushed onto the stack.
@@ -236,16 +236,37 @@ gameLoop:
 	rep stosw
 
 	; Handle player input and adjust position/angle.
-if 0
-	push 79
-	push 24
-	call get1DScreenIndex
-	shl ax, 1
-	mov di, ax
+	; Check if any button was pressed.
+	mov ah, 1
+	int 0x16
+	jz endInput
 
-	mov ax, 0x0F01
-	mov [es:di], ax
-end if
+	; If so, find out what it was.
+	cbw
+	int 0x16
+	
+	cmp ah, W_KEY
+	je moveForward
+	cmp ah, LEFT_KEY
+	je angleLeft
+	cmp ah, RIGHT_KEY
+	je angleRight
+
+	moveForward:
+	jmp endInput
+
+	angleLeft:
+	mov ax, [rot]
+	add ax, -1 * ANGULAR_SPD
+	jmp angle
+
+	angleRight:
+	mov ax, [rot]
+	add ax, ANGULAR_SPD
+	angle:
+	mov [rot], ax
+		
+	endInput:
 
 	; Loop through columns and for each, cast ray, get distance, and draw wall at relavent scale/position.
 	; Current column.
@@ -260,15 +281,6 @@ end if
 		; bp - 10 --> vertical distance to ceiling (in terms of screen rows).
 		; bp - 12 --> vertical distance to floor (in terms of screen rows).
 		; bp - 14 --> initial value of cx this iteration.
-if 0	
-		push cx
-		push 0
-		call get1DScreenIndex
-		shl ax, 1
-		mov di, ax
-		mov ax, 0x0F01
-		mov [es:di], ax
-	end if
 		add sp, -16
 
 		; Find angle to cast ray at.
