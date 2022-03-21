@@ -102,9 +102,9 @@ get1DScreenIndex:
 	; index = row num * width + col num
 	; bx is width, ax is row num
 	mov bx, SCREEN_WIDTH
-	mov ax, [bp + 6]
+	mov ax, [bp + 4]
 	mul bx
-	add ax, [bp + 4]
+	add ax, [bp + 6]
 	
 	pop bx
 
@@ -236,6 +236,16 @@ gameLoop:
 	rep stosw
 
 	; Handle player input and adjust position/angle.
+if 0
+	push 79
+	push 24
+	call get1DScreenIndex
+	shl ax, 1
+	mov di, ax
+
+	mov ax, 0x0F01
+	mov [es:di], ax
+end if
 
 	; Loop through columns and for each, cast ray, get distance, and draw wall at relavent scale/position.
 	; Current column.
@@ -250,7 +260,15 @@ gameLoop:
 		; bp - 10 --> vertical distance to ceiling (in terms of screen rows).
 		; bp - 12 --> vertical distance to floor (in terms of screen rows).
 		; bp - 14 --> initial value of cx this iteration.
-		
+if 0	
+		push cx
+		push 0
+		call get1DScreenIndex
+		shl ax, 1
+		mov di, ax
+		mov ax, 0x0F01
+		mov [es:di], ax
+	end if
 		add sp, -16
 
 		; Find angle to cast ray at.
@@ -278,7 +296,7 @@ gameLoop:
 		sub bx, ax
 		; bx now contains normalized x-component of change in position per iteration times 128.
 		mov [bp - 6], bx
-
+		
 		; Initialize raycast vars.	
 		xor ax, ax
 		mov [bp], ax
@@ -312,11 +330,12 @@ gameLoop:
 		endRayMarch:
 		; Clean up stack.
 		add sp, 4
-
+		
 		; Now that we have our distance, we can actually draw the mother flippin wall.
 		; Find distance to ceiling from the top of the screen. Please bear in mind that the diatnce we just
 		; found is currently multiplied by 128.
 		; Multiply by 128 so we can get back to rows.
+		xor dx, dx
 		mov ax, SCREEN_HEIGHT * 128
 		mov bx, [bp]
 		div bx
@@ -326,11 +345,10 @@ gameLoop:
 		mov ax, SCREEN_HEIGHT
 		sub ax, bx
 		mov [bp - 12], ax
-	
+
 		; Loop through rows and actually draw.
 		mov [bp - 14], cx
-		; Start at bottom of screen and work our way up.
-		mov cx, SCREEN_HEIGHT - 1
+		xor cx, cx
 		rowsLoop:
 			; Find location in screen buffer to draw to.
 			mov ax, [bp - 14]
@@ -338,57 +356,41 @@ gameLoop:
 			push cx
 			call get1DScreenIndex
 			add sp, 4
+			shl ax, 1
 			mov di, ax
-			
+		
 			; See if cx is greater than ceiling height (below ceiling). 
 			mov ax, [bp - 10]
 			cmp cx, ax
-
-			; Draw ceiling.
-
 			jg notCeiling
+
+			; Draw ceiling.	
 
 			notCeiling:
 			; See if cx is a floor height.
 			mov ax, [bp - 12]
 			cmp cx, ax
-
-			; Draw Wall.	
-			; Wall char index = (raycast dist / (render dist >> 7)) / 22
-			mov ax, [bp]
-			mov bx, RENDER_DISTANCE
-			shr bx, 7
-			div bx
-			mov bx, 22
-			div bx
-			; ax now contains wall char index, which we can draw.
-			mov si, ax
-			mov bx, WALL_CHARS
-			mov ax, [bx + si]
-			shr ax, 8
-			or ax, 0x0F00
-			mov [es:di], ax
-
 			jg notWall
+
+			; Draw Wall.
+			mov ax, 0x0FDB
+			mov [es:di], ax
 
 			notWall:
 
 			; Draw floor.
-			
-			mov ax, 0x0F01
-			mov [es:di], ax
-			dec cx
-		test cx, cx
-		jnz rowsLoop	
+
+			inc cx
+		mov ax, SCREEN_HEIGHT
+		cmp cx, ax
+		jl rowsLoop	
 		; Recover counter.
 		mov cx, [bp - 14]
-		
 		add sp, 16	
 		inc cx
 	mov ax, SCREEN_WIDTH
 	cmp cx, ax	
 	jl columnsLoop
-
 	; End of columns loop.
 
 	; Apply delay to slow game speed (i.e. arcsonic).
