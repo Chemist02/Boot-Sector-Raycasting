@@ -1,5 +1,5 @@
 ; ------------- NOTES -------------
-; - Position is multiplied by 100 (relative to map coordinates) so we can avoid floating point naughtiness. 
+; - Position is multiplied by 128 (relative to map coordinates) so we can avoid floating point naughtiness. 
 ; - Therefore, so are sin values and speed. Angles are in plain old degrees (not scaled).
 ; - Function calls preserve all registers, arguments pushed onto stack before call.
 ; - Returns happen in ax register.
@@ -20,32 +20,45 @@ jmp start
 VMEM_PTR	equ 0xB800
 ; Pointer to number of ticks recorded by BIOS since boot.
 TICK_COUNTER	equ 0x046C
-; Translational speed of player (again, remember that this is multiplied by 100 relative to our actual map).
-TRANSL_SPD	equ 50
+; Translational speed of player (again, remember that this is multiplied by 128 relative to our actual map).
+TRANSL_SPD	equ 64
 ; Angular speed of player (in degrees per delayTicks); not multiplied by anything.
 ANGULAR_SPD	equ 1
 ; Screen dimensions.
 SCREEN_WIDTH	equ 80
 SCREEN_HEIGHT	equ 25
+HALF_SCN_HEIGHT equ 12
 ; Map width and height (both 16)
 MAP_WIDNHEI	equ 16
+; Render distance in grid cells times 128.
+RENDER_DISTANCE	equ 16 * 128
+; Field of view and field of view divided by two in degrees.
+FOV		equ 90
+HALF_FOV	equ 45
+; Keyboard scan codes.
+W_KEY		equ 0x11
+S_KEY		equ 0x1F
+LEFT_KEY	equ 0x4B
+RIGHT_KEY	equ 0x4D
 
 ; ------------- STATIC DATA -------------
 ; Number of ticks to delay game by at the end of each game loop iteration.
 delayTicks:	dw 2
-; Player position in our map (again, multiplied by 100).
-xPos:		dw 0
-yPos:		dw 0
+; Player position in our map (again, multiplied by 128).
+xPos:		dw 896
+yPos:		dw 768
 ; Player rotation in degrees.
 rot:		dw 0
-; Let 1000sin(x) be expressed as 1000sin(x) = mx + b (approx.), where m is slope and b is y intercept.
-SIN_SLOPES:	dw 17, 16, 13, 10, 6, 2, 0
-SIN_INTERCEPTS:	dw 0, 18, 109, 257, 506, 815, 1000
+; Let 1024sin(x) be expressed as 1024sin(x) = mx + b (approx.), where m is slope and b is y intercept.
+SIN_SLOPES:	dw 17, 16, 14, 10, 6, 2, 0
+SIN_INTERCEPTS:	dw 0, 25, 91, 274, 526, 839, 1024
 ; Map encoded into 16 two byte numbers. Each number represents a column, where a 1 in the number is a wall. Most 
 ; significant bits represent the left most column of our map.
 MAP:		dw 65535, 36865, 36929, 40897, 33281, 33281, 36927, 32801, 65057, 34833, 34817, 32769, 45695, 41489, 41473, 65535
+WALL_CHARS:	db 0xDB, 0xB3, 0xB2, 0xB1, 0xB0, 0x00
 
 ; ------------- FUNCTIONS -------------
+;if 0
 ; Prints contents of ax register to top of screen in hexadecimal.
 printWord:
 	push bp 
@@ -76,10 +89,11 @@ printWord:
 	mov sp, bp
 	pop bp
 	ret
+;end if
 
-; Returns index in map/screen array given x and y coordinates (column, row) and width of array, where column 
-; number, then row number, then width are pushed onto the stack.
-get2DArrayIndex:
+; Returns index in screen array given x and y coordinates (column, row) where column 
+; number then row number are pushed onto the stack.
+get1DScreenIndex:
 	push bp 
 	mov bp, sp
 
@@ -87,10 +101,10 @@ get2DArrayIndex:
 
 	; index = row num * width + col num
 	; bx is width, ax is row num
-	mov bx, [bp + 4]
+	mov bx, SCREEN_WIDTH
 	mov ax, [bp + 6]
 	mul bx
-	add ax, [bp + 8]
+	add ax, [bp + 4]
 	
 	pop bx
 
@@ -98,7 +112,7 @@ get2DArrayIndex:
 	pop bp
 	ret
 
-; Takes column first then row pushed of map position onto stack, and returns greater than 1 if there's a wall, zero otherwise in ax.
+; Takes xpos first then ypos pushed onto stack (times 128), and returns greater than 1 if there's a wall, zero otherwise in ax.
 isCoordWall:
 	push bp
 	mov bp, sp
@@ -109,13 +123,15 @@ isCoordWall:
 	; Get column index as a mask.
 	mov ax, 0x01
 	mov cx, [bp + 6]
+	shr cx, 7
 	; Need to use cl for this, unfortunately. Man x86 is weird.
 	shl ax, cl
 
 	; Get row in map then and with column location mask.
 	mov bx, MAP
-	mov cx, [bp + 8]
-	shl cx, 1
+	mov cx, [bp + 4]
+	shr cx, 6
+	;shl cx, 1
 	add bx, cx
 	and ax, [bx]
 	
@@ -157,25 +173,21 @@ sin:
 	dontMakeLessThan90:
 	mov ax, dx
 
-	; Find linear approximation of 1000sin(x).
+	; Find linear approximation of 1024sin(x).
 	; We'll need our angle back later.
 	push ax
 	; Find which linear coefficients to use.
-	xor dx, dx
-	mov bx, 15
-	div bx
-	shl ax, 1
+	shr ax, 3
 	mov si, ax
 	mov bx, [SIN_SLOPES + si]
 	mov si, [SIN_INTERCEPTS + si]
-	; Get angle back and find 1000(sin(ax))
+	; Get angle back and find 1024(sin(ax))
 	pop ax
 	mul bx
 	add ax, si
 
-	; Divide ax by 10.
-	mov bx, 10
-	div bx
+	; Divide ax by 2^3, to bring down to 128sin(x).
+	shr ax, 3
 
 	; Determine if we need to negate and if so, do it.
 	xor dx, dx
@@ -188,8 +200,7 @@ sin:
 	cmp dx, bx
 	jl doNotNegateSin
 	; Negate (2s complement).
-	not si
-	inc si
+	neg si
 
 	doNotNegateSin:
 	; Move final answer into position.
@@ -223,6 +234,162 @@ gameLoop:
 	mov cx, 80 * 25
 	; Repeatedly black out characters indexed with di for all characters in video memory (i.e. es:di).
 	rep stosw
+
+	; Handle player input and adjust position/angle.
+
+	; Loop through columns and for each, cast ray, get distance, and draw wall at relavent scale/position.
+	; Current column.
+	xor cx, cx
+	columnsLoop:
+		; Local variables.
+		; bp - 0 --> distance until wall.
+		; DELbp - 2 --> current x pos to check times 128.
+		; DELbp - 4 --> current y pos to check times 128.
+		; bp - 6 --> change in x position to check per iteration times 128.
+		; bp - 8 --> change in y position to check per iteration times 128.
+		; bp - 10 --> vertical distance to ceiling (in terms of screen rows).
+		; bp - 12 --> vertical distance to floor (in terms of screen rows).
+		; bp - 14 --> initial value of cx this iteration.
+		
+		add sp, -16
+
+		; Find angle to cast ray at.
+		mov bx, [rot]	
+		sub bx, HALF_FOV
+		mov ax, FOV * 100
+		mul cx
+		mov si, SCREEN_WIDTH * 100
+		div si
+		add ax, bx
+		; ax now contains angle to cast ray at.
+		; Player angle is always greater than or equal to 0, so the least possible angle here is -45, so we can make
+		; positive just by adding 360.
+		mov bx, 360
+		add ax, bx
+
+		push ax
+		call sin
+		add sp, 2
+		; ax now contains normalized y-component of change in position per iteration times 128.
+		mov [bp - 8], ax
+
+		; Becuase sin and cos are complementary, we can take this from 128.	
+		mov bx, 128
+		sub bx, ax
+		; bx now contains normalized x-component of change in position per iteration times 128.
+		mov [bp - 6], bx
+
+		; Initialize raycast vars.	
+		xor ax, ax
+		mov [bp], ax
+		mov ax, [xPos]
+		push ax
+		mov ax, [yPos]
+		push ax
+		rayMarchLoop:
+			; Check if we're at a wall.
+			call isCoordWall
+			test ax, ax
+			; If ax is non-zero, we're at a wall, so end.
+			jnz endRayMarch
+
+			; Check if we traveled too far.
+			mov ax, [bp]
+			mov bx, RENDER_DISTANCE
+			cmp ax, bx
+			jg endRayMarch
+
+			; Increment, if we got this far.
+			add ax, 128
+			mov [bp], ax
+			pop ax
+			add ax, [bp - 8]
+			pop bx
+			add bx, [bp - 6]
+			push bx
+			push ax
+		jmp rayMarchLoop
+		endRayMarch:
+		; Clean up stack.
+		add sp, 4
+
+		; Now that we have our distance, we can actually draw the mother flippin wall.
+		; Find distance to ceiling from the top of the screen. Please bear in mind that the diatnce we just
+		; found is currently multiplied by 128.
+		; Multiply by 128 so we can get back to rows.
+		mov ax, SCREEN_HEIGHT * 128
+		mov bx, [bp]
+		div bx
+		mov bx, HALF_SCN_HEIGHT
+		sub bx, ax
+		mov [bp - 10], bx
+		mov ax, SCREEN_HEIGHT
+		sub ax, bx
+		mov [bp - 12], ax
+	
+		; Loop through rows and actually draw.
+		mov [bp - 14], cx
+		; Start at bottom of screen and work our way up.
+		mov cx, SCREEN_HEIGHT - 1
+		rowsLoop:
+			; Find location in screen buffer to draw to.
+			mov ax, [bp - 14]
+			push ax
+			push cx
+			call get1DScreenIndex
+			add sp, 4
+			mov di, ax
+			
+			; See if cx is greater than ceiling height (below ceiling). 
+			mov ax, [bp - 10]
+			cmp cx, ax
+
+			; Draw ceiling.
+
+			jg notCeiling
+
+			notCeiling:
+			; See if cx is a floor height.
+			mov ax, [bp - 12]
+			cmp cx, ax
+
+			; Draw Wall.	
+			; Wall char index = (raycast dist / (render dist >> 7)) / 22
+			mov ax, [bp]
+			mov bx, RENDER_DISTANCE
+			shr bx, 7
+			div bx
+			mov bx, 22
+			div bx
+			; ax now contains wall char index, which we can draw.
+			mov si, ax
+			mov bx, WALL_CHARS
+			mov ax, [bx + si]
+			shr ax, 8
+			or ax, 0x0F00
+			mov [es:di], ax
+
+			jg notWall
+
+			notWall:
+
+			; Draw floor.
+			
+			mov ax, 0x0F01
+			mov [es:di], ax
+			dec cx
+		test cx, cx
+		jnz rowsLoop	
+		; Recover counter.
+		mov cx, [bp - 14]
+		
+		add sp, 16	
+		inc cx
+	mov ax, SCREEN_WIDTH
+	cmp cx, ax	
+	jl columnsLoop
+
+	; End of columns loop.
 
 	; Apply delay to slow game speed (i.e. arcsonic).
 	mov ax, [TICK_COUNTER]
