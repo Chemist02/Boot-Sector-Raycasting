@@ -364,7 +364,9 @@ if 0
 			cmp cx, ax
 			jg notCeiling
 
-			; Draw ceiling.	
+			; Draw ceiling.
+			mov ax, 0x0000
+			jmp draw	
 
 			notCeiling:
 			; See if cx is a floor height.
@@ -373,12 +375,16 @@ if 0
 			jg notWall
 
 			; Draw Wall.
-			mov ax, 0x0FDB
-			mov [es:di], ax
+			mov ax, 0x0ADB
+			jmp draw
 
 			notWall:
 
 			; Draw floor.
+			mov ax, 0x02DB
+
+			draw:
+			mov [es:di], ax
 
 			inc cx
 		mov ax, SCREEN_HEIGHT
