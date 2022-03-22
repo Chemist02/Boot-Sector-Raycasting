@@ -40,10 +40,10 @@ W_KEY		equ 0x11
 S_KEY		equ 0x1F
 LEFT_KEY	equ 0x4B
 RIGHT_KEY	equ 0x4D
+; Number of ticks to delay game by at the end of each game loop iteration.
+DELAY_TICKS	equ 1
 
 ; ------------- STATIC DATA -------------
-; Number of ticks to delay game by at the end of each game loop iteration.
-delayTicks:	dw 1
 ; Player position in our map (again, multiplied by 128).
 xPos:		dw 896
 yPos:		dw 768
@@ -55,7 +55,7 @@ SIN_INTERCEPTS:	dw 0, 25, 91, 274, 526, 839, 1024
 ; Map encoded into 16 two byte numbers. Each number represents a column, where a 1 in the number is a wall. Most 
 ; significant bits represent the left most column of our map.
 MAP:		dw 65535, 36865, 36929, 40897, 33281, 33281, 36927, 32801, 65057, 34833, 34817, 32769, 45695, 41489, 41473, 65535
-WALL_CHARS:	db 0xDB, 0xB3, 0xB2, 0xB1, 0xB0, 0x00
+WALL_CHARS:	db 0xDB, 0xB2, 0xB1, 0xB0, 0x00, 0x00
 
 ; ------------- FUNCTIONS -------------
 if 0
@@ -377,7 +377,7 @@ gameLoop:
 			jg notCeiling
 
 			; Draw ceiling.
-			mov ax, 0x0000
+			mov ax, 0x08DB
 			jmp draw	
 
 			notCeiling:
@@ -387,7 +387,14 @@ gameLoop:
 			jg notWall
 
 			; Draw Wall.
-			mov ax, 0x0ADB
+			; mov ax, 0x0ADB
+			; jmp draw
+
+			mov si, [bp]
+			shr si, 9
+			mov al, [WALL_CHARS + si]
+			;shr ax, 8
+			or ax, 0x0A00
 			jmp draw
 
 			notWall:
@@ -413,7 +420,7 @@ gameLoop:
 
 	; Apply delay to slow game speed (i.e. arcsonic).
 	mov ax, [TICK_COUNTER]
-	add ax, [delayTicks]
+	add ax, [DELAY_TICKS]
 	delayLoop:
 		cmp [TICK_COUNTER], ax
 	jl delayLoop	
