@@ -20,8 +20,6 @@ jmp start
 VMEM_PTR	equ 0xB800
 ; Pointer to number of ticks recorded by BIOS since boot.
 TICK_COUNTER	equ 0x046C
-; Translational speed of player (again, remember that this is multiplied by 128 relative to our actual map).
-TRANSL_SPD	equ 64
 ; Angular speed of player (in degrees per delayTicks); not multiplied by anything.
 ANGULAR_SPD	equ 2
 ; Screen dimensions.
@@ -33,11 +31,10 @@ MAP_WIDNHEI	equ 16
 ; Render distance in grid cells times 128.
 RENDER_DISTANCE	equ 16 * 128
 ; Field of view and field of view divided by two in degrees.
-FOV		equ 90
-HALF_FOV	equ 45
+FOV		equ 70
+HALF_FOV	equ 35
 ; Keyboard scan codes.
-W_KEY		equ 0x11
-S_KEY		equ 0x1F
+; W_KEY		equ 0x11
 LEFT_KEY	equ 0x4B
 RIGHT_KEY	equ 0x4D
 ; Number of ticks to delay game by at the end of each game loop iteration.
@@ -50,47 +47,14 @@ yPos:		dw 768
 ; Player rotation in degrees.
 rot:		dw 0
 ; Let 1024sin(x) be expressed as 1024sin(x) = mx + b (approx.), where m is slope and b is y intercept.
-SIN_SLOPES:	dw 17, 16, 14, 10, 6, 2, 0
+SIN_SLOPES:	db 17, 16, 14, 10, 6, 2, 0
 SIN_INTERCEPTS:	dw 0, 25, 91, 274, 526, 839, 1024
 ; Map encoded into 16 two byte numbers. Each number represents a column, where a 1 in the number is a wall. Most 
 ; significant bits represent the left most column of our map.
 MAP:		dw 65535, 36865, 36929, 40897, 33281, 33281, 36927, 32801, 65057, 34833, 34817, 32769, 45695, 41489, 41473, 65535
-WALL_CHARS:	db 0xDB, 0xB2, 0xB1, 0xB0, 0x00, 0x00
+WALL_CHARS:	db 0xDB, 0xB2, 0xB1, 0xB0, 0x00
 
 ; ------------- FUNCTIONS -------------
-if 0
-; Prints contents of ax register to top of screen in hexadecimal.
-printWord:
-	push bp 
-	mov bp, sp
-
-	push ax
-	push cx
-	push dx
-	push di
-	; A word consists of 4 hex values.
-	xor di, di
-	mov cx, 4
-	mov dx, ax
-	printWordLoop:
-		mov ax, dx
-		and ax, 0x000F
-		add ax, 0x0030
-		or ax, 0x0F00
-		mov [es:di], ax
-		add di, 2
-		shr dx, 4
-	loop printWordLoop
-	pop di
-	pop dx
-	pop cx
-	pop ax
-
-	mov sp, bp
-	pop bp
-	ret
-end if
-
 ; Returns index in screen array given x and y coordinates (column, row) where column 
 ; number then row number are pushed onto the stack.
 get1DScreenIndex:
@@ -130,8 +94,8 @@ isCoordWall:
 	; Get row in map then and with column location mask.
 	mov bx, MAP
 	mov cx, [bp + 4]
+	; Only shift by 6 to multiply by 2 (to get byte offset instead of index)
 	shr cx, 6
-	;shl cx, 1
 	add bx, cx
 	and ax, [bx]
 	
@@ -179,7 +143,8 @@ sin:
 	; Find which linear coefficients to use.
 	shr ax, 3
 	mov si, ax
-	mov bx, [SIN_SLOPES + si]
+	xor bx, bx
+	mov bl, [SIN_SLOPES + si]
 	mov si, [SIN_INTERCEPTS + si]
 	; Get angle back and find 1024(sin(ax))
 	pop ax
@@ -217,7 +182,7 @@ sin:
 ; ------------- START GAME -------------
 start:
 	; Set text mode, 80x25 chars, 16 color VGA.
-	mov ax, 0x03
+	mov al, 0x03
 	int 0x10
 
 	; Set extra segment base address to be base address for 16 color text VGA video memory.
@@ -227,14 +192,6 @@ start:
 
 ; ------------- GAME LOOP -------------
 gameLoop:
-	; Clear out video memory with black (xor uses fewest bytes to zero a register).
-	xor ax, ax
-	xor di, di
-	; Screen is 80 x 25 characters.
-	mov cx, 80 * 25
-	; Repeatedly black out characters indexed with di for all characters in video memory (i.e. es:di).
-	rep stosw
-
 	; Handle player input and adjust position/angle.
 	; Check if any button was pressed.
 	mov ah, 1
@@ -245,15 +202,10 @@ gameLoop:
 	cbw
 	int 0x16
 	
-	cmp ah, W_KEY
-	je moveForward
 	cmp ah, LEFT_KEY
 	je angleLeft
 	cmp ah, RIGHT_KEY
 	je angleRight
-
-	moveForward:
-	jmp endInput
 
 	angleLeft:
 	mov ax, [rot]
@@ -387,13 +339,9 @@ gameLoop:
 			jg notWall
 
 			; Draw Wall.
-			; mov ax, 0x0ADB
-			; jmp draw
-
 			mov si, [bp]
 			shr si, 9
 			mov al, [WALL_CHARS + si]
-			;shr ax, 8
 			or ax, 0x0A00
 			jmp draw
 
