@@ -19,4 +19,4 @@ The last thing I'll mention is how the map is encoded. To save space it's a 16x1
 wall status of map cell (i, j) (i.e. a wall is present at (i, j) iff the corresponding bit location is a 1).
 
 ## Running The Program
-You can assemble the program youself using flat assembler (http://flatassembler.net/), or just just the binary provided in the repo! I'd recommend running it using the qemu (https://www.qemu.org/) i386 emulator, but given that this is tecnically a boot loader, you can 100% put this into the boot sector of a USB, floppy disk, or hard drive and boot to it! Oh, and you can use the left and right arrow keys to looks around!
+You can assemble the program youself using flat assembler (http://flatassembler.net/), or just just use the binary provided in the repo! I'd recommend running it using the qemu (https://www.qemu.org/) i386 emulator, but given that this is tecnically a boot loader, you can 100% put this into the boot sector of a USB, floppy disk, or hard drive and boot to it! Oh, and you can use the left and right arrow keys to looks around!
